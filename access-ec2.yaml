@@ -1,0 +1,370 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "VPC-ALB-EndPoint-ec2 Template."
+
+Parameters:
+#----------------------------------------------------------------#
+#Common
+#----------------------------------------------------------------#
+
+ Prefix:
+  Type: String
+  Default: "vpc-handmaid"
+
+#---------------------------------------------------------------#
+#Network
+#---------------------------------------------------------------#
+
+ VpcCidr:
+  Type: String
+  Default: "10.0.0.0/16"
+
+ PublicSubnetCidrA:
+  Type: String
+  Default: "10.0.2.0/24"
+ PublicSubnetCidrC:
+  Type: String
+  Default: "10.0.3.0/24"
+ PrivateSubnetCidrA:
+  Type: String
+  Default: "10.0.0.0/24"
+
+ PrivateSubnetCidrC:
+  Type: String
+  Default: "10.0.1.0/24"
+
+ KeyPairName:
+  Type: String
+  Default: "hideaki2"
+#---------------------------------------------------------------#
+#EC2
+#---------------------------------------------------------------#
+
+ EC2InstanceName:
+  Type: String
+  Default: "ec2"
+
+ EC2InstanceAMI:
+  Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+  Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64'
+
+ EC2InstanceInstanceType:
+  Type: String
+  Default: "t3.micro"
+ EC2InstanceVolumeType:
+  Type: String
+  Default: "gp2"
+ EC2InstanceVolumeSize:
+  Type: String
+  Default: "8"
+
+Resources:
+  NewKeyPair:
+    Type: 'AWS::EC2::KeyPair'
+    Properties:
+      #KeyFormat: pem
+      KeyName: !Ref KeyPairName
+      
+# ------------------------------------------------------------#
+#  Network
+# ------------------------------------------------------------#
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Prefix}-vpc
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: "InternetGateway"
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Vpc
+         
+#publicsubnet2つ追加
+  PublicSubnetA:
+   Type: AWS::EC2::Subnet
+   Properties:
+     CidrBlock: !Ref PublicSubnetCidrA
+     VpcId: !Ref Vpc
+     AvailabilityZone:
+      Fn::Select:
+        - "0"
+        - Fn::GetAZs: ""
+     Tags:
+      - Key: Name
+        Value: !Sub ${Prefix}-public-subnet-a
+  PublicSubnetC:
+   Type: AWS::EC2::Subnet
+   Properties:
+     CidrBlock: !Ref PublicSubnetCidrC
+     VpcId: !Ref Vpc
+     AvailabilityZone:
+      Fn::Select:
+        - "1"
+        - Fn::GetAZs: ""
+     Tags:
+      - Key: Name
+        Value: !Sub ${Prefix}-public-subnet-c
+#publicroutetable追加
+  PublicRouteTable: 
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref Vpc 
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-public-table"
+#Route
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+#routetableassociation二つ追加
+  PublicSubnetTableAssociationA: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetTableAssociationC: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      SubnetId: !Ref PublicSubnetC
+      RouteTableId: !Ref PublicRouteTable
+
+
+  PrivateSubnetA:
+   Type: AWS::EC2::Subnet
+   Properties:
+     CidrBlock: !Ref PrivateSubnetCidrA
+     VpcId: !Ref Vpc
+     AvailabilityZone:
+      Fn::Select:
+        - "0"
+        - Fn::GetAZs: ""
+     Tags:
+      - Key: Name
+        Value: !Sub ${Prefix}-private-subnet-a
+
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref PrivateSubnetCidrC
+      VpcId: !Ref Vpc
+      AvailabilityZone:
+        Fn::Select:
+          - "1"
+          - Fn::GetAZs: ""
+      Tags:
+        - Key: Name
+          Value: !Sub ${Prefix}-private-subnet-c
+
+  PrivateRouteTable: 
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref Vpc 
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-private-table"
+#今回ルートテーブルふやすためにつくった↓
+  PrivateRouteTable2: 
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref Vpc 
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-private-table2"
+
+  PrivateSubnetTableAssociationA: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetTableAssociationC: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: 
+      SubnetId: !Ref PrivateSubnetC
+      RouteTableId: !Ref PrivateRouteTable2
+#443-https,22-ssh
+  EC2SecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: "0.0.0.0/0"                    
+      GroupName: !Sub "${Prefix}-ec2-sg"
+      GroupDescription: "-"
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${Prefix}-ec2-sg"
+  ALBSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: "0.0.0.0/0" 
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: "0.0.0.0/0"                  
+      GroupName: !Sub "${Prefix}-alb-sg"
+      GroupDescription: "-"
+      Tags:
+        - Key: "Name"
+          Value: !Sub "${Prefix}-alb-sg"
+  # ------------------------------------------------------------#
+  #  VPC Endpoint
+  # ------------------------------------------------------------#
+  S3VPCEndpoint:
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      RouteTableIds: 
+        - !Ref PrivateRouteTable
+        - !Ref PrivateRouteTable2        
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Gateway
+      VpcId: !Ref Vpc 
+        
+  # ------------------------------------------------------------#
+  #  EC2Instance
+  # ------------------------------------------------------------#
+  EC2Instance1:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      KeyName: 
+       Ref: NewKeyPair # 既存のキーペア名に置き換える
+      Tags:
+        - Key: Name
+          Value: !Sub "${Prefix}-${EC2InstanceName}"
+      ImageId: !Ref EC2InstanceAMI
+      InstanceType: !Ref EC2InstanceInstanceType
+      DisableApiTermination: false
+      EbsOptimized: false
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            VolumeType: !Ref EC2InstanceVolumeType
+            VolumeSize: !Ref EC2InstanceVolumeSize
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          #PrivateIpAddress: "192.0.0.0/24" # 割り当てたいIPアドレスをここに指定
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref PublicSubnetA
+          GroupSet:
+          - !Ref EC2SecurityGroup
+      #SubnetId: !Ref PublicSubnetA
+ 
+ #講座の手動構築と同じにするためあえてEC2はひとつに
+  #EC2Instance2:
+    #Type: "AWS::EC2::Instance"
+    #Properties:
+      #Tags:
+        #- Key: Name
+          #Value: !Sub "${Prefix}-${EC2InstanceName}"
+      #ImageId: !Ref EC2InstanceAMI
+      #InstanceType: !Ref EC2InstanceInstanceType
+      #DisableApiTermination: false
+      #EbsOptimized: false
+      #BlockDeviceMappings:
+        #- DeviceName: /dev/xvda
+          #Ebs:
+            #DeleteOnTermination: true
+            #VolumeType: !Ref EC2InstanceVolumeType
+            #VolumeSize: !Ref EC2InstanceVolumeSize
+      #NetworkInterfaces:
+        #- DeviceIndex: 0
+          #PrivateIpAddress: "192.0.0.0/24" # 割り当てたいIPアドレスをここに指定
+          #AssociatePublicIpAddress: true
+          #SubnetId: !Ref PublicSubnetC
+          #GroupSet:
+          #- !Ref EC2SecurityGroup           
+      #SecurityGroupIds:
+        #- !Ref EC2SecurityGroup
+      #SubnetId: !Ref PublicSubnetC
+
+  # ------------------------------------------------------------#
+  #  ALB
+  # ------------------------------------------------------------#  
+  ALBTargetGroup: 
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties: 
+      VpcId: !Ref Vpc
+      Name: !Sub "${Prefix}-alb-tg"
+      Protocol: HTTP
+      Port: 80
+
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: "/"
+      HealthCheckPort: "traffic-port"
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 30
+      #成功コード
+      Matcher:
+       HttpCode: 200,300,301
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-alb-tg-http"
+      Targets: 
+        - Id: !Ref EC2Instance1
+          Port: 80
+       #テストで一方を削除   
+       # - Id: !Ref EC2Instance2
+        #  Port: 80
+  ALB: 
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: 
+      IpAddressType: ipv4
+      Name: !Sub "${Prefix}-alb"
+      Tags: 
+        - Key: Name
+          Value: !Sub "${Prefix}-alb"
+      Scheme: "internal"
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets: 
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetC
+      Type: application
+
+  ALBListener: 
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties: 
+      DefaultActions: 
+        - TargetGroupArn: !Ref ALBTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
