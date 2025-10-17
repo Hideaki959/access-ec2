@@ -34,7 +34,7 @@ Parameters:
 
  KeyPairName:
   Type: String
-  Default: "hideaki2"
+  Default: "hideaki"
 #---------------------------------------------------------------#
 #EC2
 #---------------------------------------------------------------#
@@ -58,11 +58,15 @@ Parameters:
   Type: String
   Default: "8"
 
+  #EC2InstanceProfileName:
+   #Type: String
+   #DEfault: "testname"
+
 Resources:
-  NewKeyPair:
-    Type: 'AWS::EC2::KeyPair'
-    Properties:
-      KeyName: !Ref KeyPairName
+  #KeyPair:
+    #Type: 'AWS::EC2::KeyPair'
+    #Properties:
+      #KeyName: !Ref KeyPairName
       
 # ------------------------------------------------------------#
 #  Network
@@ -216,11 +220,11 @@ Resources:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: "0.0.0.0/0"
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: "0.0.0.0/0" 
+          CidrIp: "133.32.233.58/32"
+        #- IpProtocol: tcp
+         # FromPort: 443
+        #  ToPort: 443
+         # CidrIp: "0.0.0.0/0" 
 
   EC2SecurityGroup:
     Type: "AWS::EC2::SecurityGroup"
@@ -236,18 +240,18 @@ Resources:
           FromPort: 80
           ToPort: 80
           SourceSecurityGroupId: !Ref ALBSecurityGroup
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: "0.0.0.0/0"
+       # - IpProtocol: tcp
+         # FromPort: 443
+         # ToPort: 443
+         # CidrIp: "0.0.0.0/0"
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: "133.32.233.0/24"   #my ipv4
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          CidrIp: "0.0.0.0/0"                      
+          CidrIp: "133.32.233.58/32"   #my ipv4
+       # - IpProtocol: tcp
+         # FromPort: 8080
+         # ToPort: 8080
+         # CidrIp: "0.0.0.0/0"                      
 
   EC2InstanceProfile: 
     Type: AWS::IAM::InstanceProfile
@@ -255,7 +259,7 @@ Resources:
       Path: "/"
       Roles: 
         - !Ref EC2Role
-      InstanceProfileName: !Sub ${AWS::StackName}-ec2-profile
+      #InstanceProfileName: !Sub ${AWS::StackName}-ec2-profile
 
   EC2Role:
     Type: "AWS::IAM::Role"
@@ -312,7 +316,8 @@ Resources:
           SubnetId: !Ref PublicSubnetA
 
       ImageId: !Ref EC2InstanceAMI
-      KeyName: !Ref NewKeyPair # 既存のキーペア名に置き換える
+      IamInstanceProfile: !Ref EC2InstanceProfile      
+      KeyName: !Ref KeyPairName # 既存のキーペア名に置き換える
       DisableApiTermination: false
       EbsOptimized: true          
       UserData: 
@@ -361,10 +366,34 @@ Resources:
           Value: !Sub "${Prefix}-alb-tg-http"        
       Port: 80      
       Protocol: HTTP
+      HealthCheckPath: '/'
+      HealthCheckPort: '80'      
       #成功コード
       Matcher:
-       HttpCode: '200,300,301'
+       HttpCode: '200'
       VpcId: !Ref Vpc  
       TargetType: instance           
       Targets: 
         - Id: !Ref EC2Instance1
+          Port: 80
+
+Outputs:
+  # ALB DNS Name の出力
+  ALBDNSName:
+    Description: The DNS name of the Application Load Balancer
+    Value: !GetAtt ALB.DNSName
+
+  # EC2 Public IP の出力
+  EC2PublicIP:
+    Description: The public IP address of the EC2 instance
+    Value: !GetAtt EC2Instance1.PublicIp
+
+  # SecurityGroup IDs の出力
+  SecurityGroupID:
+    Description: The ID of the Security Group
+    Value: !Ref EC2SecurityGroup
+
+  # TargetGroup ARN の出力
+  TargetGroupARN:
+    Description: The ARN of the Target Group
+    Value: !GetAtt ALBTargetGroup.TargetGroupArn
